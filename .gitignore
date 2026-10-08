@@ -1,0 +1,12 @@
+# Earth Engine service-account key: never commit it
+key.json
+*-key.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS files
+.DS_Store
+Thumbs.db
