@@ -1,0 +1,67 @@
+# Daily LaCADIAN recent-asset refresh for CropSight-LA.
+# Place this file at:  .github/workflows/update_lacadian.yml
+# The two scripts live in the repository's main (root) folder.
+#
+# Required GitHub repository secrets (Settings → Secrets and variables → Actions):
+#   GEE_SERVICE_ACCOUNT_KEY   full service-account JSON
+#   LACADIAN_SAS_TOKEN        Azure SAS query string (no leading '?')
+#
+# Do not put the JSON key or the SAS token in this file.
+
+name: Update LaCADIAN recent data
+
+on:
+  schedule:
+    # 10:00 UTC daily
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+
+# Never let a manual run and the scheduled run touch the same assets at once.
+concurrency:
+  group: lacadian-update
+  cancel-in-progress: false
+
+# NOTE: GitHub disables scheduled workflows in public repos after 60 days
+# without repository activity. Check the Actions tab now and then.
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install earthengine-api requests
+
+      - name: Authenticate Earth Engine
+        env:
+          GEE_KEY: ${{ secrets.GEE_SERVICE_ACCOUNT_KEY }}
+        run: |
+          printf '%s' "$GEE_KEY" > key.json
+          python -c "import ee, json; k=json.load(open('key.json')); ee.Initialize(ee.ServiceAccountCredentials(k['client_email'], 'key.json'), project='project-foysal')"
+
+      - name: Upload recent LaCADIAN data
+        env:
+          GEE_KEY_FILE: key.json
+          LACADIAN_SAS_TOKEN: ${{ secrets.LACADIAN_SAS_TOKEN }}
+        run: python lacadian_upload.py --mode recent
+
+      # Runs even if some station exports failed, so the ones that did
+      # succeed are readable by the app (a replaced asset loses its sharing).
+      - name: Make new assets public
+        if: ${{ !cancelled() }}
+        env:
+          GEE_KEY_FILE: key.json
+        run: python make_lacadian_public.py
+
+      - name: Remove local key file
+        if: always()
+        run: rm -f key.json
