@@ -1,4 +1,4 @@
-// =====================================================================
+  // =====================================================================
 // CropSight-LA - Earth Engine App
 // Vegetation indices (NDVI, NDRE, EVI) + Historical Weather (GRIDMET) +
 // 16-Day Forecast (GFS) + Soil (SOLUS100, gNATSGO) + Field Station Data
@@ -140,153 +140,149 @@ var sectionDivider = function(text) {
 };
 
 // ---------------------------------------------------------------------
-// CROP SETTINGS (Louisiana crops)
+// CROP SETTINGS (Louisiana crops) — values from manuscript Table 2
 // What each field means:
-//   tbase  = crop does not accumulate heat units below this °C
-//   tupper = extra heat above this °C is ignored in the daily heat-unit math
-//   kcIni / kcMid / kcEnd = FAO-56 crop coefficients for the early, peak and
-//            late season; daily Kc follows the crop's heat-unit clock (kcForGdd)
-//   heatStressThresh / freezeThresh = count days hotter / colder than this
+//   tbase  = crop does not accumulate heat units below this °C        [20]
+//   tupper = heat above this °C adds no extra heat units              [20]
+//   kcIni / kcMid / kcEnd = FAO-56 crop coefficients (Table 12; the
+//            midpoint is used where FAO-56 gives a range)             [18]
+//   heatStressThresh = count days with Tmax above this °C
+//   freezeThresh     = count days with Tmin below this °C (for rice this
+//            is a chilling limit; for all other crops a freeze limit)
 //   coldLabel (optional) = name for the cold-day count; default "Freeze Risk Days"
-//   stages[].gdd = running heat-unit total from planting when that label starts
-// Daily weather still comes from GRIDMET. These numbers are typical published
+//   stageGdd = GDD (°C-days) of the four FAO-56 growth stages:
+//            [initial, development, mid-season, late season]. Each value
+//            is the average of the short- and long-season values in
+//            Paredes et al. (2025) [20]; the season total is their sum.
+//   totalGdd = season total, used only for crops with no stage values
+//            in [20]; the four stages then end at 18%, 43%, 80% and 100%
+//            of this total (see ESTIMATED_STAGE_SPLIT).
+// Daily weather comes from GRIDMET. These are published or estimated
 // defaults, not measurements from the drawn field or from LaCADIAN.
 // ---------------------------------------------------------------------
+var STAGE_NAMES = ['Initial', 'Development', 'Mid-season', 'Late season'];
+// Stage shares for crops with only a season total: 18% / 25% / 37% / 20%
+// (stages end at 18%, 43%, 80% and 100% of the total). These are the
+// average stage shares of the six crops with stage values in [20]
+// (rice, cotton, corn, soybeans, wheat, sorghum), rounded to whole %.
+var ESTIMATED_STAGE_SPLIT = [0.18, 0.25, 0.37, 0.20];
+
 var CROP_CONFIG = {
-  // Warm-season cane. Heat units start at 10°C. Stage totals are a simple season clock.
+  // totalGdd for Sugarcane, Sweet Potatoes and Pasture & Forage: season
+  // GDD summed per GRIDMET pixel, averaged over Louisiana and over
+  // 1996–2025 (Table 2, footnote e). Season = midpoint of the NASS
+  // most-active planting period to midpoint of the most-active harvest
+  // period [21]; ratoon sugarcane from 1 January; pasture over the NASS
+  // hay harvest period (17 Apr – 14 Sep).
   'Sugarcane': {
-    tbase: 10, tupper: 35, kcIni: 0.40, kcMid: 1.25, kcEnd: 0.75,
-    heatStressThresh: 35, freezeThresh: -2,
-    stages: [
-      {name: 'Germination / Emergence', gdd: 0},
-      {name: 'Tillering',               gdd: 1400},
-      {name: 'Grand Growth',            gdd: 2800},
-      {name: 'Maturation',              gdd: 3500}
-    ]
+    tbase: 10, tupper: 45, kcIni: 0.40, kcMid: 1.25, kcEnd: 0.75,
+    heatStressThresh: 35, freezeThresh: 0,
+    totalGdd: 3651                          // ratoon season, 1 Jan – 17 Nov
   },
-  // Heat units start at 10°C (same idea as the U.S. "DD50" 50°F clock).
-  // freezeThresh 5°C is cool enough to slow rice, not a killing freeze,
-  // so the count is labelled "Cold Stress Days" instead of "Freeze Risk Days".
   'Rice': {
-    tbase: 10, tupper: 35, kcIni: 1.05, kcMid: 1.20, kcEnd: 0.75,
-    heatStressThresh: 35, freezeThresh: 5, coldLabel: 'Cold Stress Days',
-    stages: [
-      {name: 'Seedling Establishment', gdd: 0},
-      {name: 'Active Tillering',       gdd: 250},
-      {name: 'Panicle Initiation',     gdd: 700},
-      {name: 'Heading',                gdd: 1200},
-      {name: 'Grain Filling',          gdd: 1400},
-      {name: 'Harvest Ready',          gdd: 1600}
-    ]
+    tbase: 12, tupper: 35, kcIni: 1.05, kcMid: 1.20, kcEnd: 0.75,
+    heatStressThresh: 35, freezeThresh: 15, coldLabel: 'Cold Stress Days',  // chilling limit
+    stageGdd: [245, 477.5, 702.5, 307.5]     // total 1732.5
   },
-  // Cotton needs warmer nights: heat units start at 15.5°C (60°F "DD60").
-  // Stage gdd values are °C-days (published DD60 °F totals ÷ 1.8).
   'Cotton': {
-    tbase: 15.5, tupper: 37, kcIni: 0.35, kcMid: 1.15, kcEnd: 0.60,
-    heatStressThresh: 38, freezeThresh: -1,
-    stages: [
-      {name: 'Emergence',       gdd: 0},
-      {name: 'First Square',    gdd: 270},
-      {name: 'First Flower',    gdd: 460},
-      {name: 'First Open Boll', gdd: 970},
-      {name: 'Harvest Ready',   gdd: 1330}
-    ]
-  },
-  // Standard U.S. corn clock: 10°C floor, 30°C cap (86/50°F method).
-  'Corn': {
-    tbase: 10, tupper: 30, kcIni: 0.30, kcMid: 1.20, kcEnd: 0.60,
+    tbase: 12.5, tupper: 35, kcIni: 0.35, kcMid: 1.18, kcEnd: 0.60,
     heatStressThresh: 32, freezeThresh: -1,
-    stages: [
-      {name: 'Emergence',              gdd: 0},
-      {name: '6-Leaf Stage',           gdd: 475},
-      {name: 'Tasseling',              gdd: 1135},
-      {name: 'Silking',                gdd: 1400},
-      {name: 'Physiological Maturity', gdd: 2700}
-    ]
+    stageGdd: [312.5, 712.5, 707.5, 317.5]   // total 2050
   },
-  // Same 10°C heat-unit floor as corn. Stage totals are a short planning ladder.
-  'Soybeans': {
-    tbase: 10, tupper: 30, kcIni: 0.40, kcMid: 1.15, kcEnd: 0.50,
+  'Corn': {
+    tbase: 10, tupper: 32, kcIni: 0.30, kcMid: 1.20, kcEnd: 0.48,
     heatStressThresh: 35, freezeThresh: -1,
-    stages: [
-      {name: 'Emergence',              gdd: 0},
-      {name: 'First Flower',           gdd: 500},
-      {name: 'Pod Fill Begins',        gdd: 1000},
-      {name: 'Physiological Maturity', gdd: 1600}
-    ]
+    stageGdd: [247.5, 400, 637.5, 402.5]     // total 1687.5
   },
-  // Starts counting heat at 15°C (warm-season root crop). Clock starts at transplant.
+  'Soybeans': {
+    tbase: 10, tupper: 40, kcIni: 0.40, kcMid: 1.15, kcEnd: 0.50,
+    heatStressThresh: 35, freezeThresh: -2,
+    stageGdd: [305, 380, 665, 455]           // total 1805
+  },
+  // Clock starts at transplanting.
   'Sweet Potatoes': {
-    tbase: 15, tupper: 35, kcIni: 0.50, kcMid: 1.15, kcEnd: 0.65,
-    heatStressThresh: 38, freezeThresh: 0,
-    stages: [
-      {name: 'Transplanting',            gdd: 0},
-      {name: 'Vine Development',         gdd: 150},
-      {name: 'Storage Root Initiation',  gdd: 400},
-      {name: 'Storage Root Bulking',     gdd: 700},
-      {name: 'Harvest Ready',            gdd: 1200}
-    ]
+    tbase: 12, tupper: 30, kcIni: 0.50, kcMid: 1.15, kcEnd: 0.65,
+    heatStressThresh: 35, freezeThresh: -1.9,
+    totalGdd: 1859                          // 9 Jun – 10 Oct
   },
-  // Cool-season crop: heat units start at 0°C, so mild winter days still count.
   'Wheat': {
-    tbase: 0, tupper: 26, kcIni: 0.40, kcMid: 1.15, kcEnd: 0.40,
-    heatStressThresh: 30, freezeThresh: -8,
-    stages: [
-      {name: 'Germination',   gdd: 0},
-      {name: 'Tillering',     gdd: 300},
-      {name: 'Jointing',      gdd: 600},
-      {name: 'Heading',       gdd: 950},
-      {name: 'Grain Filling', gdd: 1150},
-      {name: 'Harvest Ready', gdd: 1450}
-    ]
+    tbase: 0, tupper: 35, kcIni: 0.70, kcMid: 1.15, kcEnd: 0.33,
+    heatStressThresh: 35, freezeThresh: -1,
+    stageGdd: [477.5, 425, 585, 387.5]       // total 1875
   },
-  // Warm-season grass settings (bermuda-type). Stages are cut timing, not a grain harvest.
+  // Bermudagrass hay; no single harvest, so the total only sets the Kc curve.
   'Pasture & Forage': {
-    tbase: 10, tupper: 35, kcIni: 0.55, kcMid: 1.00, kcEnd: 0.85,
-    heatStressThresh: 40, freezeThresh: -2,
-    stages: [
-      {name: 'Dormant / Early Growth',         gdd: 0},
-      {name: 'Active Vegetative Growth',        gdd: 300},
-      {name: 'Pre-Cut Maturity',                gdd: 600},
-      {name: 'Optimal Cutting Stage',           gdd: 1000},
-      {name: 'Overmature (Declining Quality)',  gdd: 1500}
-    ]
+    tbase: 10, tupper: 30, kcIni: 0.55, kcMid: 1.00, kcEnd: 0.85,
+    heatStressThresh: 38, freezeThresh: -1.1,
+    totalGdd: 2452                          // 17 Apr – 14 Sep
+  },
+  'Sorghum': {
+    tbase: 10, tupper: 30, kcIni: 0.30, kcMid: 1.05, kcEnd: 0.55,
+    heatStressThresh: 36, freezeThresh: -1,
+    stageGdd: [280, 305, 610, 255]           // total 1450
   }
 };
 
-// Daily crop coefficient from the FAO-56 Kc curve, mapped onto the crop's
-// heat-unit clock. f = heat units so far / heat units at the last stage.
-//   f 0.00–0.15  initial       -> kcIni
-//   f 0.15–0.45  development   -> rises linearly kcIni -> kcMid
-//   f 0.45–0.80  mid-season    -> kcMid
-//   f 0.80–1.00  late season   -> falls linearly kcMid -> kcEnd
-//   f > 1.00     past harvest  -> held at kcEnd
+// Running GDD total at the END of each of the four stages, e.g. corn:
+// [247.5, 647.5, 1285, 1687.5]. The last value is the season total.
+(function() {
+  Object.keys(CROP_CONFIG).forEach(function(name) {
+    var c = CROP_CONFIG[name];
+    var lengths = c.stageGdd || ESTIMATED_STAGE_SPLIT.map(function(f) { return f * c.totalGdd; });
+    var run = 0;
+    c.stageEnds = lengths.map(function(len) { run += len; return Math.round(run * 10) / 10; });
+    c.totalGdd = c.stageEnds[3];
+  });
+})();
+
+// Daily GDD, Eq. (3) of the manuscript (simple method, revised FAO-56 [20]):
+//   Tavg = (Tmax + Tmin) / 2
+//   GDD  = 0               if Tavg < Tbase
+//        = Tavg − Tbase    if Tbase ≤ Tavg ≤ Tupper
+//        = Tupper − Tbase  if Tavg > Tupper
+function dailyGdd(tmax, tmin, c) {
+  var tavg = (tmax + tmin) / 2;
+  if (tavg < c.tbase) return 0;
+  if (tavg > c.tupper) return c.tupper - c.tbase;
+  return tavg - c.tbase;
+}
+
+// Daily crop coefficient from the FAO-56 Kc curve on the GDD axis:
+//   initial      -> kcIni
+//   development  -> rises linearly kcIni -> kcMid
+//   mid-season   -> kcMid
+//   late season  -> falls linearly kcMid -> kcEnd
+//   past the season total -> held at kcEnd
 function kcForGdd(cropName, cumGdd) {
-  var c = CROP_CONFIG[cropName];
-  var full = c.stages[c.stages.length - 1].gdd;
-  var f = full > 0 ? cumGdd / full : 1;
-  if (f <= 0.15) return c.kcIni;
-  if (f <= 0.45) return c.kcIni + (c.kcMid - c.kcIni) * (f - 0.15) / 0.30;
-  if (f <= 0.80) return c.kcMid;
-  if (f <= 1.00) return c.kcMid + (c.kcEnd - c.kcMid) * (f - 0.80) / 0.20;
+  var c = CROP_CONFIG[cropName], e = c.stageEnds;
+  if (cumGdd <= e[0]) return c.kcIni;
+  if (cumGdd <= e[1]) return c.kcIni + (c.kcMid - c.kcIni) * (cumGdd - e[0]) / (e[1] - e[0]);
+  if (cumGdd <= e[2]) return c.kcMid;
+  if (cumGdd <= e[3]) return c.kcMid + (c.kcEnd - c.kcMid) * (cumGdd - e[2]) / (e[3] - e[2]);
   return c.kcEnd;
 }
 
-// Pick the latest stage whose heat-unit threshold the crop has already reached.
+// Current stage: the first stage whose end has not been reached yet.
+// Past the season total, heat units suggest harvest stage.
 function determineGrowthStage(cropName, totalGDD) {
-  var stages = CROP_CONFIG[cropName].stages;
-  var current = stages[0].name;
-  for (var i = 1; i < stages.length; i++) {
-    if (totalGDD >= stages[i].gdd) current = stages[i].name;
+  var e = CROP_CONFIG[cropName].stageEnds;
+  for (var i = 0; i < e.length; i++) {
+    if (totalGDD < e[i]) return STAGE_NAMES[i];
   }
-  var last = stages[stages.length - 1];
-  if (totalGDD >= last.gdd) {
-    if (cropName === 'Pasture & Forage') return last.name + ' — past optimal cutting';
-    // Avoid "Harvest Ready — Ready for Harvest" when the stage already says it.
-    if (last.name.indexOf('Harvest Ready') >= 0) return last.name;
-    return last.name + ' — Ready for Harvest';
-  }
-  return current;
+  if (cropName === 'Pasture & Forage') return 'Late season — season heat-unit total reached';
+  return 'Late season — heat units suggest harvest stage';
+}
+
+// Points on the GDD axis where a new stage starts, plus the season total.
+// Used for the chart's stage lines and the "Stages reached" dates.
+function stageMilestones(cropName) {
+  var e = CROP_CONFIG[cropName].stageEnds;
+  return [
+    {name: 'Development starts', gdd: e[0]},
+    {name: 'Mid-season starts',  gdd: e[1]},
+    {name: 'Late season starts', gdd: e[2]},
+    {name: 'Season total',       gdd: e[3]}
+  ];
 }
 
 // ---------------------------------------------------------------------
@@ -1663,7 +1659,7 @@ var cropRequestGen = 0;
 function buildStageChart(pts, cropName, boundaryMs, panel) {
   // Stages already reached plus the next one, so the axis fits the season
   // (all stages would squeeze an early-season line at the bottom).
-  var allStages = CROP_CONFIG[cropName].stages.slice(1);   // skip the 0-GDD starting stage
+  var allStages = stageMilestones(cropName);   // stage starts + season total
   var total = pts.length ? pts[pts.length - 1].value : 0;
   var stages = [];
   for (var si = 0; si < allStages.length; si++) {
@@ -1713,7 +1709,7 @@ function buildStageChart(pts, cropName, boundaryMs, panel) {
 // "Stages reached: First Square: 16 May · …" from the cumulative GDD. A date in
 // the last ~60 days (preliminary GRIDMET) is marked as possibly shifting.
 function stagesReachedText(cropName, cumPts, boundaryMs) {
-  var stages = CROP_CONFIG[cropName].stages.slice(1), parts = [];
+  var stages = stageMilestones(cropName), parts = [];
   stages.forEach(function(st) {
     for (var i = 0; i < cumPts.length; i++) {
       if (cumPts[i].value >= st.gdd) {
@@ -1886,9 +1882,7 @@ function buildCropSection(cropName) {
     var cumPts = [], etcPts = [], needPts = [], tminPts = [];
     dates.forEach(function(d) {
       var w = byDate[d];
-      var tmaxC = Math.min(w.tmax, config.tupper);
-      var tminC = Math.max(w.tmin, config.tbase);
-      var gdd = Math.max(0, (tmaxC + tminC) / 2 - config.tbase);
+      var gdd = dailyGdd(w.tmax, w.tmin, config);   // Eq. (3), simple method [20]
       var kc = kcForGdd(cropName, cumGdd);        // stage reached before today
       cumGdd += gdd;
       if (w.tmax > config.heatStressThresh) heatDays++;
