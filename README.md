@@ -6,6 +6,7 @@ CropSight-LA lets users draw their fields on a map and, in one interface, view s
 
 - **Live app:** https://project-foysal.projects.earthengine.app/view/cropsight-la
 - **Platform:** Google Earth Engine (JavaScript API)
+- **Version:** v1.0 
 - **License:** MIT (see [LICENSE.txt](LICENSE.txt))
 
 ---
@@ -15,14 +16,16 @@ CropSight-LA lets users draw their fields on a map and, in one interface, view s
 | Module | What it shows | Data source |
 |---|---|---|
 | Vegetation Index Map and Time Series | NDVI, NDRE or EVI map for a selected date, and a field-mean time series; adjustable cloud-cover filter | Sentinel-2 Level-2A |
-| Historical Weather | Daily precipitation, max/min temperature (°C or °F), max/min relative humidity, wind speed, solar radiation and VPD | GRIDMET |
+| Historical Weather | Daily precipitation, max/min temperature (°C or °F), max/min relative humidity, wind speed, solar radiation and VPD | gridMET |
 | 16-Day Forecast | Daily temperature (high/low), precipitation, wind speed, wind direction, VPD and a simplified ET₀ estimate | NOAA GFS 0.25° |
 | Soil Parameter | 11 properties: pH, bulk density, sand, silt, clay, CaCO₃, CEC and EC by depth (SOLUS100); organic carbon and available water storage by depth, and root-zone available water storage (gNATSGO) | SOLUS100, gNATSGO |
 | Field Station Data | 36 daily variables from the nearest of 24 LaCADIAN stations, with a warning when the station is more than 50 km from the field | LaCADIAN (LSU AgCenter) |
-| Crop Section | For 8 Louisiana crops: growth stage from growing degree days, crop water use (ETc), daily irrigation need, EVI time series, heat-stress days and cold days | GRIDMET, gNATSGO, Sentinel-2 |
-| Crop air-temp check | Share of days with air minimum temperature at or above the crop's base temperature, for the season and for the next 16 days | GRIDMET, NOAA GFS |
+| Crop Section | For 9 Louisiana crops: growth stage from growing degree days, crop water use (ETc), daily irrigation need, EVI time series, heat-stress days and cold days | gridMET, gNATSGO, Sentinel-2 |
+| Crop air-temp check | Share of days with air minimum temperature at or above the crop's base temperature, for the season and for the next 16 days | gridMET, NOAA GFS |
 
-Supported crops: Sugarcane, Rice, Cotton, Corn, Soybeans, Sweet Potatoes, Wheat, and Pasture & Forage.
+Supported crops: Sugarcane, Rice, Cotton, Corn, Soybeans, Sweet Potatoes, Wheat, Pasture & Forage, and Sorghum.
+
+Crop parameters (base and upper temperatures, crop coefficients, heat and cold limits and season GDD totals) are listed in Table 2 of the accompanying article. The season GDD totals for sugarcane, sweet potatoes and pasture were calculated with [`tools/GDD_Calculation.js`](tools/GDD_Calculation.js), which can be run in the Earth Engine Code Editor.
 
 ## How to use the app
 
@@ -52,6 +55,8 @@ CropSight-LA/
 ├── LICENSE.txt               MIT license
 ├── src/
 │   └── cropsight-la.js       The Earth Engine application
+├── tools/
+│   └── GDD_Calculation.js    Season GDD totals for sugarcane, sweet potatoes and pasture
 └── pipeline/                 Daily LaCADIAN station-data update (documentation copy)
     ├── README.md             How the pipeline works
     ├── lacadian_upload.py    Downloads LaCADIAN data and uploads it to Earth Engine
@@ -74,7 +79,7 @@ The app combines both. See [`pipeline/README.md`](pipeline/README.md) for detail
 | Dataset | Earth Engine ID | Resolution |
 |---|---|---|
 | Sentinel-2 MSI Level-2A (Harmonized) | `COPERNICUS/S2_SR_HARMONIZED` | 10–20 m |
-| GRIDMET daily meteorology | `IDAHO_EPSCOR/GRIDMET` | ~4 km, daily |
+| gridMET daily meteorology | `IDAHO_EPSCOR/GRIDMET` | ~4 km, daily |
 | NOAA Global Forecast System | `NOAA/GFS0P25` | 0.25°, 6-hourly |
 | SOLUS100 soil properties | `USDA/SOLUS100/V0` | 100 m |
 | gNATSGO soil (community catalog) | `projects/sat-io/open-datasets/gNATSGO` | 10 m |
@@ -82,8 +87,8 @@ The app combines both. See [`pipeline/README.md`](pipeline/README.md) for detail
 
 ## Limitations
 
-- GRIDMET, SOLUS100 and gNATSGO cover the contiguous United States only. Outside it, the weather, soil and crop modules do not work; the vegetation index and forecast modules still do.
-- GRIDMET data for the most recent ~60 days are preliminary and may change; the app marks them with a dashed line.
+- gridMET, SOLUS100 and gNATSGO cover the contiguous United States only. Outside it, the weather, soil and crop modules do not work; the vegetation index and forecast modules still do.
+- gridMET data for the most recent ~60 days are preliminary and may change; the app marks them with a dashed line.
 - Multiple fields are combined into one area. Weather, forecast, soil-water and station data are taken at the center of that combined area.
 - The vegetation index map is not cloud-masked at the pixel level; scenes are filtered by overall cloud cover.
 - The forecast ET₀ is a simplified Hargreaves–Samani estimate, not a full FAO-56 Penman–Monteith calculation.
@@ -94,6 +99,8 @@ The app combines both. See [`pipeline/README.md`](pipeline/README.md) for detail
 ## Authors
 
 - **Mohammad Arif Foysal Rifat**, Department of Geography & Anthropology, Louisiana State University
+- **Vinit Sehgal**, School of Plant, Environmental and Soil Sciences, Louisiana State University
+- **Michael Leitner**, Department of Geography & Anthropology, Louisiana State University
 - **Ivan Grijalva**, Department of Entomology, Louisiana State University
 
 Contact: ariffoysalr@gmail.com
